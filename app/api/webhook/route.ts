@@ -40,9 +40,12 @@ export async function POST(request: NextRequest) {
         const userId = event.source.userId;
         const groupId = event.source.groupId;
 
+        const userName = await getLineDisplayName(userId);
+
         console.log("Attendance response:", {
           groupId,
           userId,
+          userName,
           sessionId,
           responseStatus,
         });
@@ -53,6 +56,7 @@ export async function POST(request: NextRequest) {
             {
               session_id: Number(sessionId),
               user_id: userId,
+              user_name: userName,
               response_status: responseStatus,
               responded_at: new Date().toISOString(),
             },
@@ -342,4 +346,33 @@ async function replyToLineWithAttendance(
       errorText,
     );
   }
+}
+
+async function getLineDisplayName(
+  userId: string,
+): Promise<string | null> {
+  const response = await fetch(
+    `https://api.line.me/v2/bot/profile/${userId}`,
+    {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}`,
+      },
+    },
+  );
+
+  if (!response.ok) {
+    const errorText = await response.text();
+
+    console.error(
+      "LINE Profile API error:",
+      errorText,
+    );
+
+    return null;
+  }
+
+  const profile = await response.json();
+
+  return profile.displayName ?? null;
 }
