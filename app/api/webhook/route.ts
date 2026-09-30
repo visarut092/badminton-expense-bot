@@ -228,6 +228,131 @@ export async function POST(request: NextRequest) {
         continue;
       }
 
+      // คำสั่ง: เพิ่มค่าใช้จ่าย
+
+      if (command.startsWith("เพิ่มค่าใช้จ่าย")) {
+        const expenseText = command
+          .replace(/^เพิ่มค่าใช้จ่าย\s*/, "")
+          .trim();
+
+        const match = expenseText.match(
+          /^(\d+(?:\.\d{1,2})?)\s+(.+)$/,
+        );
+
+        if (!match) {
+          await replyToLine(
+            event.replyToken,
+            "❌ รูปแบบไม่ถูกต้องครับ\n\nตัวอย่าง:\nผู้ช่วย เพิ่มค่าใช้จ่าย 600 ค่าสนาม",
+          );
+
+          continue;
+        }
+
+        const [, amountText, description] = match;
+
+        const amount = Number(amountText);
+
+        if (!Number.isFinite(amount) || amount <= 0) {
+          await replyToLine(
+            event.replyToken,
+            "❌ จำนวนเงินต้องมากกว่า 0 บาทครับ",
+          );
+
+          continue;
+        }
+
+        const groupId = event.source?.groupId;
+        const userId = event.source?.userId;
+
+        if (!groupId || !userId) {
+          await replyToLine(
+            event.replyToken,
+            "❌ คำสั่งนี้ใช้ได้เฉพาะในกลุ่ม LINE ครับ",
+          );
+
+          continue;
+        }
+
+        // หาตารางตีแบดล่าสุดที่ยังเปิดอยู่
+        const { data: session, error: sessionError } =
+          await supabase
+            .from("badminton_sessions")
+            .select("*")
+            .eq("group_id", groupId)
+            .eq("status", "open")
+            .order("play_date", { ascending: false })
+            .order("start_time", { ascending: false })
+            .limit(1)
+            .maybeSingle();
+
+        if (sessionError) {
+          console.error(
+            "Supabase get session for expense error:",
+            sessionError,
+          );
+
+          await replyToLine(
+            event.replyToken,
+            "❌ ไม่สามารถตรวจสอบตารางตีแบดได้ครับ",
+          );
+
+          continue;
+        }
+
+        if (!session) {
+          await replyToLine(
+            event.replyToken,
+            "❌ ยังไม่มีตารางตีแบดที่เปิดอยู่ครับ",
+          );
+
+          continue;
+        }
+
+        // ดึงชื่อคนที่เพิ่มค่าใช้จ่าย
+        const userName = await getLineDisplayName(
+          groupId,
+          userId,
+        );
+
+        // บันทึกค่าใช้จ่าย
+        const { error: expenseError } = await supabase
+          .from("expenses")
+          .insert({
+            group_id: groupId,
+            user_id: userId,
+            user_name: userName,
+            description,
+            amount,
+            session_id: session.id,
+          });
+
+        if (expenseError) {
+          console.error(
+            "Supabase insert expense error:",
+            expenseError,
+          );
+
+          await replyToLine(
+            event.replyToken,
+            "❌ ไม่สามารถบันทึกค่าใช้จ่ายได้ครับ",
+          );
+
+          continue;
+        }
+
+        await replyToLine(
+          event.replyToken,
+          [
+            "✅ เพิ่มค่าใช้จ่ายแล้ว",
+            "",
+            `💰 จำนวน: ${amount.toLocaleString("th-TH")} บาท`,
+            `📝 รายการ: ${description}`,
+          ].join("\n"),
+        );
+
+        continue;
+      }
+
       // คำสั่ง: จองแบด
       if (command.startsWith("จองแบด")) {
         const bookingText = command
