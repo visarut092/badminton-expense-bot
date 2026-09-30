@@ -13,6 +13,33 @@ export async function POST(request: NextRequest) {
 
     console.log("LINE Webhook:", body);
 
+    const events = body.events ?? [];
+
+    for (const event of events) {
+      if (
+        event.type === "message" &&
+        event.message?.type === "text" &&
+        event.replyToken
+      ) {
+        await fetch("https://api.line.me/v2/bot/message/reply", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}`,
+          },
+          body: JSON.stringify({
+            replyToken: event.replyToken,
+            messages: [
+              {
+                type: "text",
+                text: `ได้รับข้อความแล้วครับ: ${event.message.text}`,
+              },
+            ],
+          }),
+        });
+      }
+    }
+
     return NextResponse.json({
       success: true,
     });
