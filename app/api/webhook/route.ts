@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+
 import { supabase } from "@/src/lib/supabase";
 
 export async function GET() {
@@ -109,15 +110,17 @@ export async function POST(request: NextRequest) {
 
         console.log("Created badminton session:", data);
 
-        await replyToLine(
+        await replyToLineWithAttendance(
           event.replyToken,
-          `🏸 เพิ่มตารางตีแบดเรียบร้อยครับ
-
-📅 วันที่: ${day}/${month}/${currentYear}
-⏰ เวลา: ${startTime} - ${endTime}
-📍 สนาม: ${venue}
-
-ขั้นตอนต่อไปเราจะเพิ่มปุ่มให้สมาชิกกดเข้าร่วมครับ`,
+          {
+            sessionId: data.id,
+            day,
+            month,
+            year: currentYear,
+            startTime,
+            endTime,
+            venue,
+          },
         );
 
         continue;
@@ -145,7 +148,10 @@ export async function POST(request: NextRequest) {
   }
 }
 
-async function replyToLine(replyToken: string, text: string) {
+async function replyToLine(
+  replyToken: string,
+  text: string,
+) {
   const response = await fetch(
     "https://api.line.me/v2/bot/message/reply",
     {
@@ -170,5 +176,116 @@ async function replyToLine(replyToken: string, text: string) {
     const errorText = await response.text();
 
     console.error("LINE Reply API error:", errorText);
+  }
+}
+
+async function replyToLineWithAttendance(
+  replyToken: string,
+  session: {
+    sessionId: number;
+    day: string;
+    month: string;
+    year: number;
+    startTime: string;
+    endTime: string;
+    venue: string;
+  },
+) {
+  const response = await fetch(
+    "https://api.line.me/v2/bot/message/reply",
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}`,
+      },
+      body: JSON.stringify({
+        replyToken,
+        messages: [
+          {
+            type: "flex",
+            altText: "🏸 ตารางตีแบดใหม่ - กรุณาเลือกการเข้าร่วม",
+            contents: {
+              type: "bubble",
+              body: {
+                type: "box",
+                layout: "vertical",
+                spacing: "md",
+                contents: [
+                  {
+                    type: "text",
+                    text: "🏸 ตารางตีแบดใหม่",
+                    weight: "bold",
+                    size: "xl",
+                  },
+                  {
+                    type: "text",
+                    text: `📅 ${session.day}/${session.month}/${session.year}`,
+                  },
+                  {
+                    type: "text",
+                    text: `⏰ ${session.startTime} - ${session.endTime}`,
+                  },
+                  {
+                    type: "text",
+                    text: `📍 ${session.venue}`,
+                    wrap: true,
+                  },
+                  {
+                    type: "separator",
+                    margin: "md",
+                  },
+                  {
+                    type: "text",
+                    text: "ใครไปกดเลือกได้เลยครับ 👇",
+                    margin: "md",
+                    wrap: true,
+                  },
+                  {
+                    type: "button",
+                    style: "primary",
+                    action: {
+                      type: "postback",
+                      label: "🏸 เข้าร่วม",
+                      data: `attendance:joined:${session.sessionId}`,
+                      displayText: "🏸 เข้าร่วม",
+                    },
+                  },
+                  {
+                    type: "button",
+                    style: "secondary",
+                    action: {
+                      type: "postback",
+                      label: "❓ ยังไม่แน่ใจ",
+                      data: `attendance:maybe:${session.sessionId}`,
+                      displayText: "❓ ยังไม่แน่ใจ",
+                    },
+                  },
+                  {
+                    type: "button",
+                    style: "secondary",
+                    action: {
+                      type: "postback",
+                      label: "❌ ไม่ไป",
+                      data: `attendance:declined:${session.sessionId}`,
+                      displayText: "❌ ไม่ไป",
+                    },
+                  },
+                ],
+              },
+            },
+          },
+        ],
+      }),
+    },
+  );
+
+  if (!response.ok) {
+    const errorText = await response.text();
+
+    console.error(
+      "LINE Attendance Reply API error:",
+      errorText,
+    );
   }
 }
