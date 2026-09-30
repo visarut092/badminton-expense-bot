@@ -96,6 +96,137 @@ export async function POST(request: NextRequest) {
       }
 
       const command = text.replace(/^ผู้ช่วย\s*/, "").trim();
+      // คำสั่ง: ดูรายชื่อ
+      if (command === "ดูรายชื่อ") {
+        const groupId = event.source?.groupId;
+
+        if (!groupId) {
+          await replyToLine(
+            event.replyToken,
+            "❌ คำสั่งนี้ใช้ได้เฉพาะในกลุ่ม LINE ครับ",
+          );
+          continue;
+        }
+
+        // หาตารางล่าสุดของกลุ่มที่ยังเปิดอยู่
+        const { data: session, error: sessionError } = await supabase
+          .from("badminton_sessions")
+          .select("*")
+          .eq("group_id", groupId)
+          .eq("status", "open")
+          .order("play_date", { ascending: false })
+          .order("start_time", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (sessionError) {
+          console.error(
+            "Supabase get session error:",
+            sessionError,
+          );
+
+          await replyToLine(
+            event.replyToken,
+            "❌ ไม่สามารถดึงข้อมูลตารางตีแบดได้ครับ",
+          );
+
+          continue;
+        }
+
+        if (!session) {
+          await replyToLine(
+            event.replyToken,
+            "❌ ยังไม่มีตารางตีแบดที่เปิดอยู่ครับ",
+          );
+
+          continue;
+        }
+
+        // ดึงรายชื่อสมาชิกทั้งหมดของตารางนี้
+        const { data: participants, error: participantError } =
+          await supabase
+            .from("badminton_participants")
+            .select("user_name, response_status")
+            .eq("session_id", session.id)
+            .order("created_at", { ascending: true });
+
+        if (participantError) {
+          console.error(
+            "Supabase get participants error:",
+            participantError,
+          );
+
+          await replyToLine(
+            event.replyToken,
+            "❌ ไม่สามารถดึงรายชื่อผู้เข้าร่วมได้ครับ",
+          );
+
+          continue;
+        }
+
+        const joined = (participants ?? []).filter(
+          (item) => item.response_status === "joined",
+        );
+
+        const maybe = (participants ?? []).filter(
+          (item) => item.response_status === "maybe",
+        );
+
+        const declined = (participants ?? []).filter(
+          (item) => item.response_status === "declined",
+        );
+
+        const joinedText =
+          joined.length > 0
+            ? joined
+                .map((item) => `• ${item.user_name ?? "ไม่ทราบชื่อ"}`)
+                .join("\n")
+            : "";
+
+        const maybeText =
+          maybe.length > 0
+            ? maybe
+                .map((item) => `• ${item.user_name ?? "ไม่ทราบชื่อ"}`)
+                .join("\n")
+            : "";
+
+        const declinedText =
+          declined.length > 0
+            ? declined
+                .map((item) => `• ${item.user_name ?? "ไม่ทราบชื่อ"}`)
+                .join("\n")
+            : "";
+
+        const message = [
+          "🏸 รายชื่อก๊วนแบด",
+          "",
+          `📅 ${formatDateForDisplay(session.play_date)}`,
+          `⏰ ${session.start_time.slice(0, 5)}${
+            session.end_time
+              ? ` - ${session.end_time.slice(0, 5)}`
+              : ""
+          }`,
+          `📍 ${session.venue ?? "-"}`,
+          "",
+          `🏸 เข้าร่วม ${joined.length} คน`,
+          joinedText,
+          "",
+          `❓ ยังไม่แน่ใจ ${maybe.length} คน`,
+          maybeText,
+          "",
+          `❌ ไม่ไป ${declined.length} คน`,
+          declinedText,
+        ]
+          .filter((line, index, array) => {
+            // ลบเฉพาะบรรทัดว่างซ้ำ ๆ
+            return !(line === "" && array[index - 1] === "");
+          })
+          .join("\n");
+
+        await replyToLine(event.replyToken, message);
+
+        continue;
+      }
 
       // คำสั่ง: จองแบด
       if (command.startsWith("จองแบด")) {
@@ -379,4 +510,10 @@ async function getLineDisplayName(
   const profile = await response.json();
 
   return profile.displayName ?? null;
+}
+
+function formatDateForDisplay(date: string) {
+  const [year, month, day] = date.split("-");
+
+  return `${day}/${month}/${year}`;
 }
