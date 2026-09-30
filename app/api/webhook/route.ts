@@ -40,7 +40,10 @@ export async function POST(request: NextRequest) {
         const userId = event.source.userId;
         const groupId = event.source.groupId;
 
-        const userName = await getLineDisplayName(userId);
+        const userName = await getLineDisplayName(
+          groupId,
+          userId,
+        );
 
         console.log("Attendance response:", {
           groupId,
@@ -349,10 +352,11 @@ async function replyToLineWithAttendance(
 }
 
 async function getLineDisplayName(
+  groupId: string,
   userId: string,
 ): Promise<string | null> {
   const response = await fetch(
-    `https://api.line.me/v2/bot/profile/${userId}`,
+    `https://api.line.me/v2/bot/group/${groupId}/member/${userId}`,
     {
       method: "GET",
       headers: {
@@ -365,7 +369,7 @@ async function getLineDisplayName(
     const errorText = await response.text();
 
     console.error(
-      "LINE Profile API error:",
+      "LINE Group Member Profile API error:",
       errorText,
     );
 
