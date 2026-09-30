@@ -76,24 +76,6 @@ export async function POST(request: NextRequest) {
 
           continue;
         }
-        let statusText = "";
-
-        switch (responseStatus) {
-          case "joined":
-            statusText = "🏸 เข้าร่วม";
-            break;
-          case "maybe":
-            statusText = "❓ ยังไม่แน่ใจ";
-            break;
-          case "declined":
-            statusText = "❌ ไม่ไป";
-            break;
-        }
-
-        await replyToLine(
-          event.replyToken,
-          `${userName ?? "สมาชิก"} ${statusText}`,
-        );
 
         continue;
       }
