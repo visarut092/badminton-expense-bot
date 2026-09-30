@@ -714,6 +714,15 @@ export async function POST(request: NextRequest) {
         continue;
       }
 
+      if (command === "เก่งมาก") {
+        await replyToLine(
+          event.replyToken,
+          "ขอบคุณครับ 😎",
+        );
+
+        continue;
+      }
+
       // คำสั่งผู้ช่วยที่ยังไม่รู้จัก
       await replyToLine(
         event.replyToken,
