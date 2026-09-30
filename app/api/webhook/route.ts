@@ -683,6 +683,37 @@ export async function POST(request: NextRequest) {
         continue;
       }
 
+      // คำสั่ง: กวนส้นตีน
+      if (command === "เลียไข่") {
+        const groupId = event.source?.groupId;
+        const userId = event.source?.userId;
+
+        if (!groupId || !userId) {
+          await replyToLine(
+            event.replyToken,
+            "❌ คำสั่งนี้ใช้ได้เฉพาะในกลุ่ม LINE ครับ",
+          );
+
+          continue;
+        }
+
+        const userName = await getLineDisplayName(
+          groupId,
+          userId,
+        );
+
+        await replyToLine(
+          event.replyToken,
+          [
+            `คุณ ${userName ?? "ไม่ทราบชื่อ"} กรุณาจ่ายเงินเพิ่ม 100 บาท`,
+            "พร้อมเพย์ : 0897749968",
+            "ไม่จ่ายไช่เล็ก",
+          ].join("\n"),
+        );
+
+        continue;
+      }
+
       // คำสั่งผู้ช่วยที่ยังไม่รู้จัก
       await replyToLine(
         event.replyToken,
