@@ -65,6 +65,11 @@ export async function POST(request: NextRequest) {
             `Attendance ignored: session ${sessionId} is closed or not found`,
           );
 
+          await replyToLine(
+            event.replyToken,
+            "🔒 รอบนี้ปิดไปแล้วครับ ไม่สามารถเปลี่ยนการเข้าร่วมได้",
+          );
+
           continue;
         }
 
@@ -554,6 +559,7 @@ export async function POST(request: NextRequest) {
           "👥 รายชื่อผู้เข้าร่วม",
           ...participantLines,
           "",
+          ​"พร้อมเพย์ : 0973544449",
           "🔒 ปิดรอบเรียบร้อยแล้ว",
         ].join("\n");
 
