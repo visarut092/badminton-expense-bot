@@ -18,6 +18,7 @@ export async function POST(request: NextRequest) {
     const events = body.events ?? [];
 
     for (const event of events) {
+
       // รองรับการกดปุ่ม Attendance
       if (
         event.type === "postback" &&
@@ -39,6 +40,33 @@ export async function POST(request: NextRequest) {
 
         const userId = event.source.userId;
         const groupId = event.source.groupId;
+
+        // ตรวจสอบสถานะของรอบตีแบดก่อนบันทึก Attendance
+        const { data: session, error: sessionError } =
+          await supabase
+            .from("badminton_sessions")
+            .select("id, status")
+            .eq("id", Number(sessionId))
+            .eq("group_id", groupId)
+            .maybeSingle();
+
+        if (sessionError) {
+          console.error(
+            "Supabase get session for attendance error:",
+            sessionError,
+          );
+
+          continue;
+        }
+
+        // ถ้ารอบถูกปิดแล้ว จะไม่สามารถเปลี่ยน Attendance ได้
+        if (!session || session.status !== "open") {
+          console.log(
+            `Attendance ignored: session ${sessionId} is closed or not found`,
+          );
+
+          continue;
+        }
 
         const userName = await getLineDisplayName(
           groupId,
@@ -79,6 +107,7 @@ export async function POST(request: NextRequest) {
 
         continue;
       }
+
       // รองรับเฉพาะข้อความ Text
       if (
         event.type !== "message" ||
@@ -352,7 +381,7 @@ export async function POST(request: NextRequest) {
 
         continue;
       }
-      
+
       // คำสั่ง: สรุปค่าใช้จ่าย
 
       if (command === "สรุปค่าใช้จ่าย") {
