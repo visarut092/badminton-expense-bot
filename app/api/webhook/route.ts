@@ -18,6 +18,60 @@ export async function POST(request: NextRequest) {
     const events = body.events ?? [];
 
     for (const event of events) {
+      // รองรับการกดปุ่ม Attendance
+      if (
+        event.type === "postback" &&
+        event.postback?.data &&
+        event.source?.groupId &&
+        event.source?.userId
+      ) {
+        const postbackData = event.postback.data;
+
+        const match = postbackData.match(
+          /^attendance:(joined|maybe|declined):(\d+)$/,
+        );
+
+        if (!match) {
+          continue;
+        }
+
+        const [, responseStatus, sessionId] = match;
+
+        const userId = event.source.userId;
+        const groupId = event.source.groupId;
+
+        console.log("Attendance response:", {
+          groupId,
+          userId,
+          sessionId,
+          responseStatus,
+        });
+
+        const { error } = await supabase
+          .from("badminton_participants")
+          .upsert(
+            {
+              session_id: Number(sessionId),
+              user_id: userId,
+              response_status: responseStatus,
+              responded_at: new Date().toISOString(),
+            },
+            {
+              onConflict: "session_id,user_id",
+            },
+          );
+
+        if (error) {
+          console.error(
+            "Supabase participant upsert error:",
+            error,
+          );
+
+          continue;
+        }
+
+        continue;
+      }
       // รองรับเฉพาะข้อความ Text
       if (
         event.type !== "message" ||
