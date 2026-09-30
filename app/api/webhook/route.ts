@@ -352,6 +352,211 @@ export async function POST(request: NextRequest) {
 
         continue;
       }
+      
+      // คำสั่ง: สรุปค่าใช้จ่าย
+
+      if (command === "สรุปค่าใช้จ่าย") {
+        const groupId = event.source?.groupId;
+
+        if (!groupId) {
+          await replyToLine(
+            event.replyToken,
+            "❌ คำสั่งนี้ใช้ได้เฉพาะในกลุ่ม LINE ครับ",
+          );
+
+          continue;
+        }
+
+        // หาตารางตีแบดล่าสุดที่ยังเปิดอยู่
+        const { data: session, error: sessionError } =
+          await supabase
+            .from("badminton_sessions")
+            .select("*")
+            .eq("group_id", groupId)
+            .eq("status", "open")
+            .order("play_date", { ascending: false })
+            .order("start_time", { ascending: false })
+            .limit(1)
+            .maybeSingle();
+
+        if (sessionError) {
+          console.error(
+            "Supabase get session for summary error:",
+            sessionError,
+          );
+
+          await replyToLine(
+            event.replyToken,
+            "❌ ไม่สามารถตรวจสอบตารางตีแบดได้ครับ",
+          );
+
+          continue;
+        }
+
+        if (!session) {
+          await replyToLine(
+            event.replyToken,
+            "❌ ยังไม่มีตารางตีแบดที่เปิดอยู่ครับ",
+          );
+
+          continue;
+        }
+
+        // ดึงค่าใช้จ่ายของ session นี้
+        const { data: expenses, error: expenseError } =
+          await supabase
+            .from("expenses")
+            .select("description, amount")
+            .eq("session_id", session.id)
+            .order("created_at", { ascending: true });
+
+        if (expenseError) {
+          console.error(
+            "Supabase get expenses error:",
+            expenseError,
+          );
+
+          await replyToLine(
+            event.replyToken,
+            "❌ ไม่สามารถดึงข้อมูลค่าใช้จ่ายได้ครับ",
+          );
+
+          continue;
+        }
+
+        if (!expenses || expenses.length === 0) {
+          await replyToLine(
+            event.replyToken,
+            "❌ รอบนี้ยังไม่มีค่าใช้จ่ายครับ",
+          );
+
+          continue;
+        }
+
+        // ดึงเฉพาะคนที่กดเข้าร่วม
+        const { data: participants, error: participantError } =
+          await supabase
+            .from("badminton_participants")
+            .select("user_id, user_name, response_status")
+            .eq("session_id", session.id)
+            .eq("response_status", "joined")
+            .order("created_at", { ascending: true });
+
+        if (participantError) {
+          console.error(
+            "Supabase get joined participants error:",
+            participantError,
+          );
+
+          await replyToLine(
+            event.replyToken,
+            "❌ ไม่สามารถดึงรายชื่อผู้เข้าร่วมได้ครับ",
+          );
+
+          continue;
+        }
+
+        const joinedCount = participants?.length ?? 0;
+
+        if (joinedCount === 0) {
+          await replyToLine(
+            event.replyToken,
+            "❌ ยังไม่มีคนกดเข้าร่วมครับ",
+          );
+
+          continue;
+        }
+
+        // รวมค่าใช้จ่ายทั้งหมด
+        const totalAmount = expenses.reduce(
+          (total, expense) => total + Number(expense.amount),
+          0,
+        );
+
+        // หารค่าใช้จ่ายต่อคน
+        const amountPerPerson = totalAmount / joinedCount;
+
+        const expenseLines = expenses.map(
+          (expense) =>
+            `• ${expense.description} ${Number(
+              expense.amount,
+            ).toLocaleString("th-TH", {
+              minimumFractionDigits: 2,
+              maximumFractionDigits: 2,
+            })} บาท`,
+        );
+
+        const participantLines = (participants ?? []).map(
+          (participant) =>
+            `• ${participant.user_name ?? "ไม่ทราบชื่อ"} — ${amountPerPerson.toLocaleString(
+              "th-TH",
+              {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              },
+            )} บาท`,
+        );
+
+        const message = [
+          "💰 สรุปค่าใช้จ่าย",
+          "",
+          `📅 ${formatDateForDisplay(session.play_date)}`,
+          `⏰ ${session.start_time.slice(0, 5)}${
+            session.end_time
+              ? ` - ${session.end_time.slice(0, 5)}`
+              : ""
+          }`,
+          `📍 ${session.venue ?? "-"}`,
+          "",
+          "📝 รายการค่าใช้จ่าย",
+          ...expenseLines,
+          "",
+          `💰 รวมทั้งหมด ${totalAmount.toLocaleString("th-TH", {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2,
+          })} บาท`,
+          "",
+          `🏸 ผู้เข้าร่วม ${joinedCount} คน`,
+          `💵 คนละ ${amountPerPerson.toLocaleString("th-TH", {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2,
+          })} บาท`,
+          "",
+          "👥 รายชื่อผู้เข้าร่วม",
+          ...participantLines,
+          "",
+          "🔒 ปิดรอบเรียบร้อยแล้ว",
+        ].join("\n");
+
+        // ปิดรอบตีแบด
+        const { error: closeSessionError } = await supabase
+          .from("badminton_sessions")
+          .update({
+            status: "closed",
+          })
+          .eq("id", session.id);
+
+        if (closeSessionError) {
+          console.error(
+            "Supabase close session error:",
+            closeSessionError,
+          );
+
+          await replyToLine(
+            event.replyToken,
+            "❌ สรุปค่าใช้จ่ายสำเร็จ แต่ไม่สามารถปิดรอบได้ครับ",
+          );
+
+          continue;
+        }
+
+        await replyToLine(
+          event.replyToken,
+          message,
+        );
+
+        continue;
+      }
 
       // คำสั่ง: จองแบด
       if (command.startsWith("จองแบด")) {
