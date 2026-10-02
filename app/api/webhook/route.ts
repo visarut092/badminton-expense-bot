@@ -387,6 +387,69 @@ export async function POST(request: NextRequest) {
         continue;
       }
 
+      // คำสั่ง: ดูรอบ
+      if (command === "ดูรอบ") {
+        const groupId = event.source?.groupId;
+
+        if (!groupId) {
+          await replyToLine(
+            event.replyToken,
+            "❌ คำสั่งนี้ใช้ได้เฉพาะในกลุ่ม LINE ครับ",
+          );
+          continue;
+        }
+
+        const { data: sessions, error } = await supabase
+          .from("badminton_sessions")
+          .select("*")
+          .eq("group_id", groupId)
+          .eq("status", "open")
+          .order("play_date", { ascending: true })
+          .order("start_time", { ascending: true });
+
+        if (error) {
+          console.error("Get sessions error:", error);
+          await replyToLine(
+            event.replyToken,
+            "❌ ไม่สามารถดึงข้อมูลรอบตีแบดได้ครับ",
+          );
+          continue;
+        }
+
+        if (!sessions || sessions.length === 0) {
+          await replyToLine(
+            event.replyToken,
+            "🏸 ยังไม่มีรอบตีแบดที่เปิดอยู่ครับ",
+          );
+          continue;
+        }
+
+        const lines = await Promise.all(
+          sessions.map(async (session, index) => {
+            const { count } = await supabase
+              .from("badminton_participants")
+              .select("*", { count: "exact", head: true })
+              .eq("session_id", session.id)
+              .eq("response_status", "joined");
+
+            return [
+              `🏸 รอบที่ ${index + 1} (ID: ${session.id})`,
+              `📅 ${formatDateForDisplay(session.play_date)}`,
+              `⏰ ${session.start_time.slice(0, 5)} - ${session.end_time?.slice(0, 5) ?? "-"}`,
+              `📍 ${session.venue ?? "-"}`,
+              `👥 เข้าร่วม ${count ?? 0} คน`,
+            ].join("\n");
+          }),
+        );
+
+        await replyToLine(
+          event.replyToken,
+          ["🏸 รอบตีแบดที่เปิดอยู่", "", ...lines].join("\n\n"),
+        );
+
+        continue;
+      }
+
       // คำสั่ง: สรุปค่าใช้จ่าย
 
       if (command === "สรุปค่าใช้จ่าย") {
@@ -678,6 +741,160 @@ export async function POST(request: NextRequest) {
             endTime,
             venue,
           },
+        );
+
+        continue;
+      }
+
+      // คำสั่ง: ยกเลิกรอบ
+      if (command.startsWith("ยกเลิกรอบ")) {
+        const match = command.match(/^ยกเลิกรอบ\s+(\d+)$/);
+
+        if (!match) {
+          await replyToLine(
+            event.replyToken,
+            "❌ รูปแบบไม่ถูกต้องครับ\n\nตัวอย่าง:\nผู้ช่วย ยกเลิกรอบ 15",
+          );
+          continue;
+        }
+
+        const sessionId = Number(match[1]);
+        const groupId = event.source?.groupId;
+
+        if (!groupId) {
+          await replyToLine(
+            event.replyToken,
+            "❌ คำสั่งนี้ใช้ได้เฉพาะในกลุ่ม LINE ครับ",
+          );
+          continue;
+        }
+
+        const { data: session, error } = await supabase
+          .from("badminton_sessions")
+          .update({ status: "cancelled" })
+          .eq("id", sessionId)
+          .eq("group_id", groupId)
+          .eq("status", "open")
+          .select("id")
+          .maybeSingle();
+
+        if (error) {
+          console.error("Cancel session error:", error);
+          await replyToLine(
+            event.replyToken,
+            "❌ ไม่สามารถยกเลิกรอบได้ครับ",
+          );
+          continue;
+        }
+
+        if (!session) {
+          await replyToLine(
+            event.replyToken,
+            "❌ ไม่พบรอบที่เปิดอยู่ หรือรอบนี้ถูกปิดไปแล้วครับ",
+          );
+          continue;
+        }
+
+        await replyToLine(
+          event.replyToken,
+          `✅ ยกเลิกรอบ ID ${sessionId} เรียบร้อยแล้วครับ`,
+        );
+
+        continue;
+      }
+
+      // คำสั่ง: แก้ไขรอบ
+      if (command.startsWith("แก้ไขรอบ")) {
+        const match = command.match(
+          /^แก้ไขรอบ\s+(\d+)\s+(\d{1,2})\/(\d{1,2})\s+(\d{1,2}:\d{2})-(\d{1,2}:\d{2})\s+(.+)$/,
+        );
+
+        if (!match) {
+          await replyToLine(
+            event.replyToken,
+            [
+              "❌ รูปแบบไม่ถูกต้องครับ",
+              "",
+              "ตัวอย่าง:",
+              "ผู้ช่วย แก้ไขรอบ 15 6/10 19:00-22:00 สนาม ABC",
+            ].join("\n"),
+          );
+          continue;
+        }
+
+        const [, idText, day, month, startTime, endTime, venue] = match;
+        const sessionId = Number(idText);
+        const groupId = event.source?.groupId;
+
+        if (!groupId) {
+          await replyToLine(
+            event.replyToken,
+            "❌ คำสั่งนี้ใช้ได้เฉพาะในกลุ่ม LINE ครับ",
+          );
+          continue;
+        }
+
+        const year = new Date().getFullYear();
+        const playDate = `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
+
+        const validDate = new Date(`${playDate}T00:00:00`);
+        const validTime = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+        if (
+          validDate.getFullYear() !== year ||
+          validDate.getMonth() + 1 !== Number(month) ||
+          validDate.getDate() !== Number(day) ||
+          !validTime.test(startTime) ||
+          !validTime.test(endTime) ||
+          startTime >= endTime
+        ) {
+          await replyToLine(
+            event.replyToken,
+            "❌ วันที่หรือเวลาไม่ถูกต้องครับ",
+          );
+          continue;
+        }
+
+        const { data: session, error } = await supabase
+          .from("badminton_sessions")
+          .update({
+            play_date: playDate,
+            start_time: startTime,
+            end_time: endTime,
+            venue: venue.trim(),
+          })
+          .eq("id", sessionId)
+          .eq("group_id", groupId)
+          .eq("status", "open")
+          .select("id")
+          .maybeSingle();
+
+        if (error) {
+          console.error("Update session error:", error);
+          await replyToLine(
+            event.replyToken,
+            "❌ ไม่สามารถแก้ไขรอบได้ครับ",
+          );
+          continue;
+        }
+
+        if (!session) {
+          await replyToLine(
+            event.replyToken,
+            "❌ ไม่พบรอบที่เปิดอยู่ หรือรอบนี้ถูกปิดไปแล้วครับ",
+          );
+          continue;
+        }
+
+        await replyToLine(
+          event.replyToken,
+          [
+            "✅ แก้ไขรอบเรียบร้อยแล้ว",
+            `🆔 ID: ${sessionId}`,
+            `📅 ${formatDateForDisplay(playDate)}`,
+            `⏰ ${startTime} - ${endTime}`,
+            `📍 ${venue.trim()}`,
+          ].join("\n"),
         );
 
         continue;
